@@ -98,7 +98,7 @@ The codebase is modular and ready for cloud deployment, but will need to change 
 
 ## AI Reflection
 
-AI assisted team in tools we were not too familiar with, the structure of the codebase, docstrings, template/starter code, and for understanding how to use this repo as a Cloud Job. Instrumental in developing this portion of the project for our application, but was not used to create everything. Had to reject changes that were not applicable to our project, too large for the scope -- such as sentiment and timeline anaylsis for the entire project-- and more.
+AI assisted team in tools we were not too familiar with, the structure of the codebase, docstrings, template/starter code, and for understanding how to use this repo as a Cloud Job. Instrumental in developing this portion of the project for our application, but was not used to create everything. Had to reject changes that were not applicable to our project, too large for the scope -- such as sentiment and timeline anaylsis for the all entries at once-- and more.
 
 ## Example Output 
 
