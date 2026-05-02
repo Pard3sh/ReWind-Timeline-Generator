@@ -78,6 +78,20 @@ In our cloud environment, this would:
 - Emotion inference from text
 - Timeline title generation
 
+## Model Used
+
+**j-hartmann/emotion-english-distilroberta-base** from Hugging Face for Sentiment Timeline
+
+This model is a DistilRoBERTa-base fine-tuned for emotion classification. It provides accurate emotion detection across 6 emotion categories:
+
+- **Anger**
+- **Disgust**
+- **Fear**
+- **Joy**
+- **Neutral**
+- **Sadness**
+- **Surprise**
+
 ## Development
 
 The codebase is modular and ready for cloud deployment, but will need to change according to the Cloud database structure.

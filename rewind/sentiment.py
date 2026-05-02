@@ -1,6 +1,23 @@
 """Sentiment analysis utilities for ReWind."""
 
 from datetime import datetime
+from transformers import pipeline
+from typing import Optional
+
+# Initialize emotion classifier (loads on first use)
+_emotion_classifier: Optional[object] = None
+
+
+def get_emotion_classifier():
+    """Load the emotion classification model lazily on first use."""
+    global _emotion_classifier
+    if _emotion_classifier is None:
+        _emotion_classifier = pipeline(
+            "text-classification",
+            model="j-hartmann/emotion-english-distilroberta-base",
+            top_k=None,
+        )
+    return _emotion_classifier
 
 
 def parse_timestamp(ts: str) -> datetime:
@@ -34,39 +51,33 @@ def sentiment_emoji(score: float) -> str:
     return "😞"
 
 
-def infer_emotion_label(text: str, score: float, magnitude: float) -> str:
-    """Infer a more descriptive emotion label from text and sentiment values."""
-    text_lower = text.lower()
+def infer_emotion_label(text: str, score: float = 0.0, magnitude: float = 0.0) -> str:
+    """Infer emotion label using transformer-based emotion classifier.
 
-    if any(
-        word in text_lower for word in ["anxious", "overwhelmed", "nervous", "worried"]
-    ):
-        return "Anxious"
+    Uses the j-hartmann/emotion-english-distilroberta-base model for accurate
+    emotion classification. Falls back gracefully to keyword heuristics if model fails.
 
-    if any(
-        word in text_lower
-        for word in [
-            "frustrated",
-            "burnout",
-            "exhausting",
-            "stuck",
-            "deadline",
-            "deadlines",
-        ]
-    ):
-        return "Stressed"
+    Args:
+        text: The journal entry text to classify
+        score: GCNL sentiment score (for fallback)
+        magnitude: GCNL sentiment magnitude (for fallback)
 
-    if any(word in text_lower for word in ["calm", "peaceful", "relaxed"]):
-        return "Calm"
-
-    if any(
-        word in text_lower
-        for word in ["excited", "thrilled", "looking forward", "trip"]
-    ):
-        return "Excited"
-
-    if any(word in text_lower for word in ["hopeful", "optimistic", "proud"]):
-        return "Hopeful"
+    Returns:
+        The top emotion label predicted by the model
+    """
+    try:
+        classifier = get_emotion_classifier()
+        # Truncate text to 512 tokens (model max length)
+        text_truncated = text[:500]
+        predictions = classifier(text_truncated)
+        # Get the top emotion (highest confidence)
+        if predictions and predictions[0]:
+            top_emotion = predictions[0][0]
+            emotion = top_emotion["label"].capitalize()
+            return emotion
+    except Exception as e:
+        # Fallback to simple heuristics if model fails
+        pass
 
     if score >= 0.7:
         return "Happy"
