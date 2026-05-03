@@ -2,24 +2,24 @@
 
 from typing import List, Optional
 from rewind.models import TimelineNode, FolderSummary
-from rewind.sentiment import sentiment_label
+from rewind.sentiment import sentiment_label, sentiment_bucket, empty_sentiment_counts
 
 
 class BaseFolderTimeline:
-    """Base container for folder timelines.
+    """Base container for folder timelines."""
 
-    Manages ordered TimelineNode objects and refreshes a running summary
-    whenever entries are added.
-    """
-
-    def __init__(self, folder_name: str):
+    def __init__(self, folder_name: str = ""):
         self.folder_name = folder_name
         self.nodes: List[TimelineNode] = []
         self.summary: Optional[FolderSummary] = None
 
     def add_node(self, node: TimelineNode) -> None:
-        """Insert a node if it matches this folder and avoid duplicate IDs."""
-        if node.folder_name != self.folder_name:
+        """Insert a node and avoid duplicate IDs."""
+        if (
+            self.folder_name
+            and node.folder_name
+            and node.folder_name != self.folder_name
+        ):
             raise ValueError(
                 f"Node folder '{node.folder_name}' does not match timeline folder '{self.folder_name}'"
             )
@@ -32,7 +32,7 @@ class BaseFolderTimeline:
         self._refresh_summary()
 
     def add_nodes_from_analyzed_entries(self, entries: List[dict]) -> None:
-        """Build nodes from raw analysis entries and add them to this timeline."""
+        """Build nodes from analyzed entry dicts and add them to this timeline."""
         for entry in entries:
             node = TimelineNode.from_analyzed_entry(entry)
             self.add_node(node)
@@ -62,12 +62,16 @@ class BaseFolderTimeline:
 
         location_counts = {}
         event_counts = {}
+        bucket_counts = empty_sentiment_counts()
 
         for node in self.nodes:
             for loc in node.extracted_locations:
                 location_counts[loc] = location_counts.get(loc, 0) + 1
             for evt in node.extracted_events:
                 event_counts[evt] = event_counts.get(evt, 0) + 1
+
+            bucket = sentiment_bucket(node.sentiment_score)
+            bucket_counts[bucket] += 1
 
         top_locations = sorted(location_counts, key=location_counts.get, reverse=True)[
             :3
@@ -102,6 +106,11 @@ class BaseFolderTimeline:
             top_locations=top_locations,
             top_events=top_events,
             summary_text=summary_text,
+            very_positive_count=bucket_counts["very_positive"],
+            positive_count=bucket_counts["positive"],
+            neutral_count=bucket_counts["neutral"],
+            negative_count=bucket_counts["negative"],
+            very_negative_count=bucket_counts["very_negative"],
         )
 
     def _summary_mood_text(self, avg_sentiment: float) -> str:
@@ -118,13 +127,13 @@ class BaseFolderTimeline:
         raise NotImplementedError
 
     def to_string(self) -> str:
-        lines = [f"Folder Timeline: {self.folder_name}", "-" * 60]
+        lines = [f"Folder Timeline: {self.folder_name or 'Unknown'}", "-" * 60]
 
         if self.summary is not None:
             lines.append(str(self.summary))
         else:
             lines.append("Summary")
-            lines.append(f"Folder: {self.folder_name}")
+            lines.append(f"Folder: {self.folder_name or 'Unknown'}")
             lines.append("Summary not available yet (minimum 3 entries required).")
 
         lines.append("-" * 60)

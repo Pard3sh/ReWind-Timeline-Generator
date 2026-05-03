@@ -1,10 +1,13 @@
 """GCNL API client for ReWind sentiment analysis."""
 
-import os
-import json
+from typing import Dict, List, Any, Optional
 import requests
-from typing import Dict, List, Any
-from rewind.sentiment import infer_emotion_label, generate_timeline_title
+
+from rewind.sentiment import (
+    infer_emotion_label,
+    generate_timeline_title,
+    sentiment_label,
+)
 
 
 class GCNLClient:
@@ -14,10 +17,35 @@ class GCNLClient:
         self.api_key = api_key
         self.sentiment_url = f"https://language.googleapis.com/v1/documents:analyzeSentiment?key={api_key}"
         self.entity_url = f"https://language.googleapis.com/v1/documents:analyzeEntitySentiment?key={api_key}"
-        self.headers = {"Content-Type": "application/json"}
+        self.session = requests.Session()
+        self.session.headers.update({"Content-Type": "application/json"})
+
+    @staticmethod
+    def _dedupe_preserve_order(items: List[str]) -> List[str]:
+        seen = set()
+        result = []
+        for item in items:
+            cleaned = (item or "").strip()
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                result.append(cleaned)
+        return result
 
     def analyze_text(self, text: str) -> Dict[str, Any]:
         """Analyze a single text entry for sentiment and entities."""
+        text = (text or "").strip()
+
+        if not text:
+            return {
+                "sentiment_score": 0.0,
+                "sentiment_magnitude": 0.0,
+                "sentiment_label": sentiment_label(0.0),
+                "emotion_label": "Reflective",
+                "extracted_locations": [],
+                "extracted_events": [],
+                "entities": [],
+            }
+
         payload = {
             "document": {
                 "type": "PLAIN_TEXT",
@@ -27,29 +55,30 @@ class GCNLClient:
             "encodingType": "UTF8",
         }
 
-        sentiment_res = requests.post(
-            self.sentiment_url, headers=self.headers, json=payload, timeout=20
-        )
-        entity_res = requests.post(
-            self.entity_url, headers=self.headers, json=payload, timeout=20
-        )
-
-        if sentiment_res.status_code != 200:
-            raise RuntimeError(
-                f"Sentiment API error: {sentiment_res.status_code} - {sentiment_res.text}"
+        try:
+            sentiment_res = self.session.post(
+                self.sentiment_url,
+                json=payload,
+                timeout=(5, 20),
             )
+            sentiment_res.raise_for_status()
 
-        if entity_res.status_code != 200:
-            raise RuntimeError(
-                f"Entity API error: {entity_res.status_code} - {entity_res.text}"
+            entity_res = self.session.post(
+                self.entity_url,
+                json=payload,
+                timeout=(5, 20),
             )
+            entity_res.raise_for_status()
+
+        except requests.RequestException as e:
+            raise RuntimeError(f"GCNL request failed: {e}") from e
 
         sentiment_data = sentiment_res.json()
         entity_data = entity_res.json()
 
-        sentiment_score = sentiment_data.get("documentSentiment", {}).get("score")
+        sentiment_score = sentiment_data.get("documentSentiment", {}).get("score", 0.0)
         sentiment_magnitude = sentiment_data.get("documentSentiment", {}).get(
-            "magnitude"
+            "magnitude", 0.0
         )
 
         entities = []
@@ -57,64 +86,103 @@ class GCNLClient:
         extracted_events = []
 
         for entity in entity_data.get("entities", []):
-            entity_name = entity.get("name")
-            entity_type = entity.get("type")
-            salience = entity.get("salience")
+            entity_name = (entity.get("name") or "").strip()
+            entity_type = entity.get("type", "")
             entity_sentiment = entity.get("sentiment", {})
 
             entity_record = {
                 "name": entity_name,
                 "type": entity_type,
-                "salience": entity.get("salience"),
-                "sentiment_score": entity_sentiment.get("score"),
-                "sentiment_magnitude": entity_sentiment.get("magnitude"),
+                "salience": float(entity.get("salience", 0.0) or 0.0),
+                "sentiment_score": float(entity_sentiment.get("score", 0.0) or 0.0),
+                "sentiment_magnitude": float(
+                    entity_sentiment.get("magnitude", 0.0) or 0.0
+                ),
             }
             entities.append(entity_record)
 
-            if entity_type == "LOCATION":
+            if entity_type == "LOCATION" and entity_name:
                 extracted_locations.append(entity_name)
-            if entity_type == "EVENT":
+
+            if entity_type == "EVENT" and entity_name:
                 extracted_events.append(entity_name)
+
+        extracted_locations = self._dedupe_preserve_order(extracted_locations)
+        extracted_events = self._dedupe_preserve_order(extracted_events)
 
         emotion_label = infer_emotion_label(
             text,
-            sentiment_score if sentiment_score is not None else 0.0,
-            sentiment_magnitude if sentiment_magnitude is not None else 0.0,
+            float(sentiment_score or 0.0),
+            float(sentiment_magnitude or 0.0),
         )
 
         return {
-            "sentiment_score": sentiment_score,
-            "sentiment_magnitude": sentiment_magnitude,
+            "sentiment_score": float(sentiment_score or 0.0),
+            "sentiment_magnitude": float(sentiment_magnitude or 0.0),
+            "sentiment_label": sentiment_label(float(sentiment_score or 0.0)),
             "emotion_label": emotion_label,
             "extracted_locations": extracted_locations,
             "extracted_events": extracted_events,
             "entities": entities,
         }
 
-    def analyze_entries(self, entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Analyze a list of journal entries."""
+    def analyze_entry(
+        self,
+        entry: Dict[str, Any],
+        saved_location: str = "",
+        folder_name: str = "",
+    ) -> Dict[str, Any]:
+        """Analyze one Room/Firestore journal entry."""
+        body = (entry.get("body", "") or "").strip()
+        title = (entry.get("title", "") or "").strip()
+
+        analysis = self.analyze_text(body)
+
+        generated_title = generate_timeline_title(
+            title or "Untitled Entry",
+            analysis["emotion_label"],
+            analysis["extracted_events"],
+            analysis["extracted_locations"],
+        )
+
+        timestamp = entry.get("timestamp")
+        if hasattr(timestamp, "isoformat"):
+            timestamp = timestamp.isoformat()
+        elif timestamp is None:
+            timestamp = ""
+
+        return {
+            "entry_id": entry.get("id", ""),
+            "entry_title": title,
+            "generated_title": generated_title,
+            "user_id": entry.get("userId", ""),
+            "folder_id": entry.get("folderId"),
+            "folder_name": folder_name,
+            "timestamp": timestamp,
+            "saved_location": saved_location or "",
+            "latitude": entry.get("latitude"),
+            "longitude": entry.get("longitude"),
+            "body": body,
+            **analysis,
+        }
+
+    def analyze_entries(
+        self,
+        entries: List[Dict[str, Any]],
+        saved_locations: Optional[Dict[str, str]] = None,
+        folder_name: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Analyze a list of Room/Firestore journal entries."""
         results = []
+        saved_locations = saved_locations or {}
+
         for entry in entries:
-            analysis = self.analyze_text(entry["text"])
-
-            # Build a more readable title for this timeline node.
-            generated_title = generate_timeline_title(
-                entry["title"],
-                analysis["emotion_label"],
-                analysis["extracted_events"],
-                analysis["extracted_locations"],
+            entry_id = entry.get("id", "")
+            analyzed = self.analyze_entry(
+                entry=entry,
+                saved_location=saved_locations.get(entry_id, ""),
+                folder_name=folder_name,
             )
-
-            result = {
-                "entry_id": entry["entry_id"],
-                "entry_title": entry["title"],
-                "generated_title": generated_title,
-                "folder_name": entry["folder_name"],
-                "timestamp": entry["timestamp"],
-                "saved_location": entry["saved_location"],
-                "text": entry["text"],
-                **analysis,
-            }
-            results.append(result)
+            results.append(analyzed)
 
         return results

@@ -1,110 +1,209 @@
 """Cloud job for processing ReWind sentiment analysis.
 
-This script is designed to run as a cloud job that processes
-folders with new journal entries and generates sentiment timelines.
+Reads entries from Firestore, analyzes them, generates sentiment and detailed
+timeline nodes, and writes results back to Firestore to match the Android
+Room schema.
 """
 
 import json
 import logging
-from typing import List, Dict, Any
+import os
+from typing import List, Dict, Any, Optional
+
 from rewind.config import GCNL_API_KEY
 from rewind.api import GCNLClient
 from rewind.timeline import SentimentFolderTimeline, DetailedFolderTimeline
+from rewind.database import FirestoreDB
+from rewind.serializers import (
+    build_sentiment_node,
+    build_detailed_node,
+)
 
-# Set up logging for cloud environment
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def process_folder_entries(
-    folder_name: str, entries: List[Dict[str, Any]]
-) -> Dict[str, Any]:
-    """Process entries for a single folder and return timeline data.
-
-    Args:
-        folder_name: Name of the folder being processed
-        entries: List of journal entry dictionaries
-
-    Returns:
-        Dictionary containing sentiment and detailed timeline strings
-    """
-    logger.info(f"Processing {len(entries)} entries for folder: {folder_name}")
-
-    # Initialize the GCNL client
-    client = GCNLClient(GCNL_API_KEY)
-
-    # Analyze all entries
-    analyzed_entries = client.analyze_entries(entries)
-
-    # Create timeline views
-    sentiment_timeline = SentimentFolderTimeline(folder_name)
-    detailed_timeline = DetailedFolderTimeline(folder_name)
-
-    # Add analyzed entries
-    sentiment_timeline.add_nodes_from_analyzed_entries(analyzed_entries)
-    detailed_timeline.add_nodes_from_analyzed_entries(analyzed_entries)
-
-    # Return timeline data (could be saved to database here)
+def build_empty_folder_summary_payload() -> Dict[str, Any]:
+    """Return an empty folder summary payload."""
     return {
-        "folder_name": folder_name,
-        "entry_count": len(entries),
-        "sentiment_timeline": str(sentiment_timeline),
-        "detailed_timeline": str(detailed_timeline),
-        "analyzed_entries": analyzed_entries,
+        "entry_count": 0,
+        "average_sentiment": 0.0,
+        "sentiment_trend": "Unknown",
+        "top_locations": [],
+        "top_events": [],
+        "summary_text": "",
+        "start_timestamp": "",
+        "end_timestamp": "",
+        "very_positive_count": 0,
+        "positive_count": 0,
+        "neutral_count": 0,
+        "negative_count": 0,
+        "very_negative_count": 0,
     }
 
 
-def main():
-    """Main entry point for the cloud job.
+def build_folder_summary_payload(timeline) -> Dict[str, Any]:
+    """Convert a timeline summary into a Firestore-friendly payload."""
+    if not timeline.summary:
+        return build_empty_folder_summary_payload()
 
-    In a real cloud environment, this would:
-    1. Read job parameters (folder_name, entry_ids)
-    2. Fetch entries from database
-    3. Process and generate timelines
-    4. Save results back to database
-    """
-    # Example usage
-    folder_name = "Career Reflections"
-    entries = [
-        {
-            "entry_id": "e1",
-            "title": "Internship Meeting Stress",
-            "folder_name": folder_name,
-            "timestamp": "2026-05-01T08:30:00",
-            "saved_location": "Boston, MA",
-            "text": "I felt overwhelmed after my internship meeting in Boston today, but I was proud that I finished my proposal before dinner.",
-        },
-        {
-            "entry_id": "e2",
-            "title": "Calm Evening with Friends",
-            "folder_name": folder_name,
-            "timestamp": "2026-05-02T18:15:00",
-            "saved_location": "Cambridge, MA",
-            "text": "I spent the evening with friends near Cambridge Common and felt calm for the first time all week.",
-        },
-        {
-            "entry_id": "e3",
-            "title": "Booked Florence Train",
-            "folder_name": folder_name,
-            "timestamp": "2026-05-03T10:45:00",
-            "saved_location": "Florence, Italy",
-            "text": "I booked my train to Florence and started feeling genuinely excited about the trip. Planning everything made me a little anxious, but mostly hopeful.",
-        },
-        {
-            "entry_id": "e4",
-            "title": "Burnout After Class",
-            "folder_name": folder_name,
-            "timestamp": "2026-05-04T21:00:00",
-            "saved_location": "Boston University",
-            "text": "Classes were exhausting today. I missed the gym, got stuck thinking about deadlines, and felt frustrated walking back from campus.",
-        },
+    return {
+        "entry_count": timeline.summary.entry_count,
+        "average_sentiment": timeline.summary.average_sentiment,
+        "sentiment_trend": timeline.summary.sentiment_trend,
+        "top_locations": timeline.summary.top_locations,
+        "top_events": timeline.summary.top_events,
+        "summary_text": timeline.summary.summary_text,
+        "start_timestamp": timeline.summary.start_timestamp,
+        "end_timestamp": timeline.summary.end_timestamp,
+        "very_positive_count": timeline.summary.very_positive_count,
+        "positive_count": timeline.summary.positive_count,
+        "neutral_count": timeline.summary.neutral_count,
+        "negative_count": timeline.summary.negative_count,
+        "very_negative_count": timeline.summary.very_negative_count,
+    }
+
+
+def process_folder_entries(
+    user_id: str,
+    folder_id: str,
+    folder_name: str,
+    entries: List[Dict[str, Any]],
+    db: Optional[FirestoreDB] = None,
+) -> Dict[str, Any]:
+    """Process entries for a single folder and generate timeline data."""
+    logger.info(f"Processing {len(entries)} entries for folder {folder_id}")
+
+    filtered_entries = [
+        entry
+        for entry in entries
+        if entry.get("folderId") == folder_id and entry.get("folderId") is not None
     ]
 
-    result = process_folder_entries(folder_name, entries)
+    if not filtered_entries:
+        logger.warning(f"No entries found for folder {folder_id}")
+        return {
+            "user_id": user_id,
+            "folder_id": folder_id,
+            "folder_name": folder_name,
+            "entry_count": 0,
+            "sentiment_nodes": [],
+            "detailed_nodes": [],
+            "folder_summary": build_empty_folder_summary_payload(),
+        }
 
-    # In cloud job, save to database instead of printing
-    logger.info(f"Processed folder {folder_name} with {result['entry_count']} entries")
-    print(json.dumps(result, indent=2))
+    if not GCNL_API_KEY:
+        raise ValueError("GCNL_API_KEY is missing.")
+
+    client = GCNLClient(GCNL_API_KEY)
+
+    saved_locations = {
+        entry["id"]: db.get_saved_location_for_entry(entry) if db else ""
+        for entry in filtered_entries
+    }
+
+    analyzed_entries = client.analyze_entries(
+        entries=filtered_entries,
+        saved_locations=saved_locations,
+        folder_name=folder_name,
+    )
+
+    sentiment_timeline = SentimentFolderTimeline(folder_name)
+    detailed_timeline = DetailedFolderTimeline(folder_name)
+
+    sentiment_timeline.add_nodes_from_analyzed_entries(analyzed_entries)
+    detailed_timeline.add_nodes_from_analyzed_entries(analyzed_entries)
+
+    analyzed_by_entry_id = {entry["entry_id"]: entry for entry in analyzed_entries}
+
+    sentiment_nodes = []
+    detailed_nodes = []
+
+    for order_index, node in enumerate(sentiment_timeline.nodes):
+        analyzed_entry = analyzed_by_entry_id.get(node.entry_id, {})
+
+        sentiment_nodes.append(
+            build_sentiment_node(
+                analyzed_entry=analyzed_entry,
+                folder_id=folder_id,
+                order_index=order_index,
+            )
+        )
+
+        detailed_nodes.append(
+            build_detailed_node(
+                analyzed_entry=analyzed_entry,
+                folder_id=folder_id,
+            )
+        )
+
+    result = {
+        "user_id": user_id,
+        "folder_id": folder_id,
+        "folder_name": folder_name,
+        "entry_count": len(filtered_entries),
+        "sentiment_nodes": sentiment_nodes,
+        "detailed_nodes": detailed_nodes,
+        "folder_summary": build_folder_summary_payload(sentiment_timeline),
+    }
+
+    if db:
+        logger.info("Writing results to Firestore")
+        db.write_sentiment_nodes(user_id, folder_id, sentiment_nodes)
+        db.write_detailed_nodes(user_id, folder_id, detailed_nodes)
+        db.update_folder_summary(user_id, folder_id, result["folder_summary"])
+
+    return result
+
+
+def main():
+    """Main entry point for the cloud job."""
+    user_id = os.getenv("REWIND_USER_ID", "").strip()
+    folder_id = os.getenv("REWIND_FOLDER_ID", "").strip()
+    folder_name = os.getenv("REWIND_FOLDER_NAME", "").strip()
+
+    if not user_id or not folder_id:
+        raise ValueError(
+            "REWIND_USER_ID and REWIND_FOLDER_ID environment variables are required."
+        )
+
+    db = FirestoreDB()
+
+    if not folder_name:
+        folder = db.get_folder(user_id, folder_id)
+        folder_name = folder.get("name", "") if folder else ""
+
+    entries = db.get_folder_entries(user_id, folder_id)
+
+    if not entries:
+        logger.warning(f"No entries found for folder {folder_id}")
+        return
+
+    result = process_folder_entries(
+        user_id=user_id,
+        folder_id=folder_id,
+        folder_name=folder_name,
+        entries=entries,
+        db=db,
+    )
+
+    logger.info(f"Job complete. Processed {result['entry_count']} entries")
+    logger.info(f"Generated {len(result['sentiment_nodes'])} sentiment nodes")
+    logger.info(f"Generated {len(result['detailed_nodes'])} detailed nodes")
+
+    print(
+        json.dumps(
+            {
+                "user_id": result["user_id"],
+                "folder_id": result["folder_id"],
+                "entry_count": result["entry_count"],
+                "sentiment_nodes_count": len(result["sentiment_nodes"]),
+                "detailed_nodes_count": len(result["detailed_nodes"]),
+                "folder_summary": result["folder_summary"],
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -2,9 +2,11 @@
 
 from datetime import datetime
 from transformers import pipeline
-from typing import Optional
+from typing import Optional, Dict
+import logging
 
-# Initialize emotion classifier (loads on first use)
+logger = logging.getLogger(__name__)
+
 _emotion_classifier: Optional[object] = None
 
 
@@ -20,64 +22,92 @@ def get_emotion_classifier():
     return _emotion_classifier
 
 
-def parse_timestamp(ts: str) -> datetime:
-    """Convert an ISO-8601 timestamp string into a datetime object."""
+def parse_timestamp(ts) -> datetime:
+    """Convert an ISO-8601 timestamp-like value into a datetime object."""
+    if ts is None:
+        raise ValueError("Timestamp cannot be None")
+
+    if hasattr(ts, "isoformat") and not isinstance(ts, str):
+        return ts
+
+    ts = str(ts).strip()
+    if not ts:
+        raise ValueError("Timestamp cannot be empty")
+
+    if ts.endswith("Z"):
+        ts = ts.replace("Z", "+00:00")
+
     return datetime.fromisoformat(ts)
+
+
+def sentiment_bucket(score: float) -> str:
+    """Return a stable sentiment bucket key for summary counts."""
+    if score >= 0.6:
+        return "very_positive"
+    if score >= 0.2:
+        return "positive"
+    if score > -0.2:
+        return "neutral"
+    if score >= -0.6:
+        return "negative"
+    return "very_negative"
+
+
+def empty_sentiment_counts() -> Dict[str, int]:
+    """Return an initialized sentiment bucket counter."""
+    return {
+        "very_positive": 0,
+        "positive": 0,
+        "neutral": 0,
+        "negative": 0,
+        "very_negative": 0,
+    }
 
 
 def sentiment_label(score: float) -> str:
     """Return a human-readable sentiment label for a GCNL score."""
-    if score >= 0.6:
-        return "Very Positive"
-    if score >= 0.2:
-        return "Positive"
-    if score > -0.2:
-        return "Neutral"
-    if score >= -0.6:
-        return "Negative"
-    return "Very Negative"
+    bucket = sentiment_bucket(score)
+    labels = {
+        "very_positive": "Very Positive",
+        "positive": "Positive",
+        "neutral": "Neutral",
+        "negative": "Negative",
+        "very_negative": "Very Negative",
+    }
+    return labels[bucket]
 
 
 def sentiment_emoji(score: float) -> str:
     """Return an emoji that matches the sentiment score."""
-    if score >= 0.6:
-        return "😊"
-    if score >= 0.2:
-        return "🙂"
-    if score > -0.2:
-        return "😐"
-    if score >= -0.6:
-        return "☹️"
-    return "😞"
+    bucket = sentiment_bucket(score)
+    emojis = {
+        "very_positive": "😊",
+        "positive": "🙂",
+        "neutral": "😐",
+        "negative": "☹️",
+        "very_negative": "😞",
+    }
+    return emojis[bucket]
 
 
 def infer_emotion_label(text: str, score: float = 0.0, magnitude: float = 0.0) -> str:
-    """Infer emotion label using transformer-based emotion classifier.
-
-    Uses the j-hartmann/emotion-english-distilroberta-base model for accurate
-    emotion classification. Falls back gracefully to keyword heuristics if model fails.
-
-    Args:
-        text: The journal entry text to classify
-        score: GCNL sentiment score (for fallback)
-        magnitude: GCNL sentiment magnitude (for fallback)
-
-    Returns:
-        The top emotion label predicted by the model
-    """
+    """Infer emotion label using transformer-based emotion classifier."""
     try:
         classifier = get_emotion_classifier()
-        # Truncate text to 512 tokens (model max length)
-        text_truncated = text[:500]
-        predictions = classifier(text_truncated)
-        # Get the top emotion (highest confidence)
-        if predictions and predictions[0]:
-            top_emotion = predictions[0][0]
-            emotion = top_emotion["label"].capitalize()
-            return emotion
+        predictions = classifier(text, truncation=True, max_length=512)
+
+        if isinstance(predictions, list) and predictions:
+            first_item = predictions[0]
+
+            if isinstance(first_item, list) and first_item:
+                top_emotion = max(first_item, key=lambda x: x.get("score", 0.0))
+                return top_emotion.get("label", "Neutral").capitalize()
+
+            if isinstance(first_item, dict):
+                return first_item.get("label", "Neutral").capitalize()
+
     except Exception as e:
-        # Fallback to simple heuristics if model fails
-        pass
+        logger.warning(f"Emotion classification failed, using fallback: {e}")
 
     if score >= 0.7:
         return "Happy"
