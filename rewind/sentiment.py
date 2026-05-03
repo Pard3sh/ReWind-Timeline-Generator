@@ -1,11 +1,12 @@
 """Sentiment analysis utilities for ReWind."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from transformers import pipeline
 from typing import Optional, Dict
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 _emotion_classifier: Optional[object] = None
 
@@ -23,9 +24,15 @@ def get_emotion_classifier():
 
 
 def parse_timestamp(ts) -> datetime:
-    """Convert an ISO-8601 timestamp-like value into a datetime object."""
+    """Convert supported timestamp values into a timezone-aware datetime object."""
     if ts is None:
         raise ValueError("Timestamp cannot be None")
+
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+    if isinstance(ts, (int, float)):
+        return datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc)
 
     if hasattr(ts, "isoformat") and not isinstance(ts, str):
         return ts
@@ -33,6 +40,9 @@ def parse_timestamp(ts) -> datetime:
     ts = str(ts).strip()
     if not ts:
         raise ValueError("Timestamp cannot be empty")
+
+    if ts.isdigit():
+        return datetime.fromtimestamp(int(ts) / 1000.0, tz=timezone.utc)
 
     if ts.endswith("Z"):
         ts = ts.replace("Z", "+00:00")
