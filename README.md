@@ -55,8 +55,9 @@ pip install -r requirements.txt
 # Copy example environment file
 cp .env.example .env
 
-# Edit .env with your API keys
-# Required: GCNL_API_KEY (Google Cloud Natural Language API key)
+# Edit .env with your API keys -- only necessary for local sample run
+# It is stored as a secret in the cloud environment
+# Required: GCNL_API_KEY (Google Cloud Natural Language API key) 
 ```
 
 ### 3. Run Example
