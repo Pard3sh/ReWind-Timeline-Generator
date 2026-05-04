@@ -144,7 +144,8 @@ def process_folder_entries(
         "entry_count": len(filtered_entries),
         "sentiment_nodes": sentiment_nodes,
         "detailed_nodes": detailed_nodes,
-        "folder_summary": build_folder_summary_payload(sentiment_timeline),
+        "folder_summary": build_folder_summary_payload(sentiment_time    logger.info("Starting batch processing of all users and folders")
+
     }
 
     if db:
@@ -157,53 +158,105 @@ def process_folder_entries(
 
 
 def main():
-    """Main entry point for the cloud job."""
-    user_id = os.getenv("REWIND_USER_ID", "").strip()
-    folder_id = os.getenv("REWIND_FOLDER_ID", "").strip()
-    folder_name = os.getenv("REWIND_FOLDER_NAME", "").strip()
+    """Main entry point for the cloud job.
 
-    if not user_id or not folder_id:
-        raise ValueError(
-            "REWIND_USER_ID and REWIND_FOLDER_ID environment variables are required."
-        )
-
+    Processes all users and their folders, analyzing unanalyzed entries
+    and updating sentiment/detailed timeline nodes in Firestore.
+    """
     db = FirestoreDB()
 
-    if not folder_name:
-        folder = db.get_folder(user_id, folder_id)
-        folder_name = folder.get("name", "") if folder else ""
+    logger.info("Starting batch processing of all users and folders")
 
-    entries = db.get_folder_entries(user_id, folder_id)
+    try:
+        # Fetch all users
+        users = db.get_all_users()
+        logger.info(f"Found {len(users)} users to process")
 
-    if not entries:
-        logger.warning(f"No entries found for folder {folder_id}")
-        return
+        total_folders_processed = 0
+        total_entries_processed = 0
 
-    result = process_folder_entries(
-        user_id=user_id,
-        folder_id=folder_id,
-        folder_name=folder_name,
-        entries=entries,
-        db=db,
-    )
+        for user_id in users:
+            logger.info(f"Processing user: {user_id}")
 
-    logger.info(f"Job complete. Processed {result['entry_count']} entries")
-    logger.info(f"Generated {len(result['sentiment_nodes'])} sentiment nodes")
-    logger.info(f"Generated {len(result['detailed_nodes'])} detailed nodes")
+            try:
+                # Fetch all folders for this user
+                folders = db.get_all_folders(user_id)
+                logger.info(f"  Found {len(folders)} folders for user {user_id}")
 
-    print(
-        json.dumps(
-            {
-                "user_id": result["user_id"],
-                "folder_id": result["folder_id"],
-                "entry_count": result["entry_count"],
-                "sentiment_nodes_count": len(result["sentiment_nodes"]),
-                "detailed_nodes_count": len(result["detailed_nodes"]),
-                "folder_summary": result["folder_summary"],
-            },
-            indent=2,
+                for folder in folders:
+                    folder_id = folder.get("id", "")
+                    folder_name = folder.get("name", "")
+
+                    logger.info(f"  Processing folder: {folder_name} ({folder_id})")
+
+                    try:
+                        # Fetch unanalyzed entries for this folder
+                        entries = db.get_unanalyzed_entries(user_id, folder_id)
+
+                        if not entries:
+                            logger.info(
+                                f"    No unanalyzed entries in folder {folder_id}"
+                            )
+                            continue
+
+                        logger.info(f"    Found {len(entries)} unanalyzed entries")
+
+                        # Process the folder
+                        result = process_folder_entries(
+                            user_id=user_id,
+                            folder_id=folder_id,
+                            folder_name=folder_name,
+                            entries=entries,
+                            db=db,
+                        )
+
+                        if "error" not in result:
+                            total_entries_processed += result["entry_count"]
+                            total_folders_processed += 1
+                            logger.info(
+                                f"    ✓ Processed {result['entry_count']} entries, "
+                                f"generated {len(result['sentiment_nodes'])} nodes"
+                            )
+
+                    except Exception as e:
+                        logger.error(
+                            f"    Error processing folder {folder_id}: {e}",
+                            exc_info=True,
+                        )
+                        continue
+
+            except Exception as e:
+                logger.error(f"  Error processing user {user_id}: {e}", exc_info=True)
+                continue
+
+        logger.info(
+            f"Batch job complete. Processed {total_folders_processed} folders "
+            f"and {total_entries_processed} entries"
         )
-    )
+
+        print(
+            json.dumps(
+                {
+                    "status": "success",
+                    "folders_processed": total_folders_processed,
+                    "entries_processed": total_entries_processed,
+                },
+                indent=2,
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Fatal error in batch job: {e}", exc_info=True)
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "message": str(e),
+                },
+                indent=2,
+            )
+        )
+        raise
 
 
 if __name__ == "__main__":

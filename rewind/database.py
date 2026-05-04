@@ -238,3 +238,178 @@ class FirestoreDB:
         except Exception as e:
             logger.error(f"Error updating folder summary: {e}")
             return False
+
+    def get_all_users(self) -> List[str]:
+        """Fetch all user IDs from Firestore.
+
+        Returns:
+            List of user IDs
+        """
+        try:
+            self._ensure_db()
+            users = self.db.collection("users").stream()
+            user_ids = [doc.id for doc in users]
+            logger.info(f"Fetched {len(user_ids)} users")
+            return user_ids
+        except Exception as e:
+            logger.error(f"Error fetching users: {e}")
+            return []
+
+    def get_all_folders(self, user_id: str) -> List[Dict[str, Any]]:
+        """Fetch all folders for a specific user.
+
+        Args:
+            user_id: The user ID
+
+        Returns:
+            List of folder documents with their IDs
+        """
+        try:
+            self._ensure_db()
+            folders_query = (
+                self.db.collection("users")
+                .document(user_id)
+                .collection("folders")
+                .stream()
+            )
+
+            folders = []
+            for doc in folders_query:
+                folder_data = doc.to_dict()
+                folder_data["id"] = doc.id
+                folders.append(folder_data)
+
+            logger.info(f"Fetched {len(folders)} folders for user {user_id}")
+            return folders
+        except Exception as e:
+            logger.error(f"Error fetching folders for user {user_id}: {e}")
+            return []
+
+    def get_unanalyzed_entries(
+        self, user_id: str, folder_id: str
+    ) -> List[Dict[str, Any]]:
+        """Fetch all unanalyzed entries for a specific folder.
+
+        An entry is considered unanalyzed if it doesn't have a corresponding
+        sentiment node yet (or if analyzed=false field exists).
+
+        Args:
+            user_id: The user ID
+            folder_id: The folder ID
+
+        Returns:
+            List of unanalyzed entry documents with their IDs
+        """
+        try:
+            self._ensure_db()
+
+            # Fetch all entries for this folder
+            entries_query = (
+                self.db.collection("users")
+                .document(user_id)
+                .collection("entries")
+                .where("folderId", "==", folder_id)
+                .stream()
+            )
+
+            unanalyzed_entries = []
+            for doc in entries_query:
+                entry_data = doc.to_dict()
+                entry_data["id"] = doc.id
+
+                # Check if entry has been analyzed by looking for sentiment nodes
+                has_sentiment_node = self._entry_has_sentiment_node(
+                    user_id, folder_id, doc.id
+                )
+
+                if not has_sentiment_node:
+                    unanalyzed_entries.append(entry_data)
+
+            logger.info(
+                f"Fetched {len(unanalyzed_entries)} unanalyzed entries for folder {folder_id}"
+            )
+            return unanalyzed_entries
+        except Exception as e:
+            logger.error(f"Error fetching unanalyzed entries: {e}")
+            return []
+
+    def _entry_has_sentiment_node(
+        self, user_id: str, folder_id: str, entry_id: str
+    ) -> bool:
+        """Check if an entry already has a sentiment node.
+
+        Args:
+            user_id: The user ID
+            folder_id: The folder ID
+            entry_id: The entry ID
+
+        Returns:
+            True if sentiment node exists, False otherwise
+        """
+        try:
+            nodes_query = (
+                self.db.collection("users")
+                .document(user_id)
+                .collection("folders")
+                .document(folder_id)
+                .collection("sentiment_nodes")
+                .where("entryId", "==", entry_id)
+                .limit(1)
+                .stream()
+            )
+
+            return any(nodes_query)
+        except Exception as e:
+            logger.warning(f"Error checking for sentiment node: {e}")
+            return False
+
+    def get_saved_location_for_entry(self, entry: Dict[str, Any]) -> str:
+        """Convert entry location (lat/lng) to a human-readable string.
+
+        Args:
+            entry: The entry document
+
+        Returns:
+            Human-readable location string
+        """
+        saved_location = entry.get("savedLocation", "")
+        if saved_location:
+            return saved_location
+
+        # Try converting from lat/lng if available
+        latitude = entry.get("latitude")
+        longitude = entry.get("longitude")
+
+        if latitude is not None and longitude is not None:
+            return self.location_converter.coords_to_location_string(
+                latitude, longitude
+            )
+
+        return ""
+
+    def get_folder(self, user_id: str, folder_id: str) -> Dict[str, Any]:
+        """Fetch a specific folder document.
+
+        Args:
+            user_id: The user ID
+            folder_id: The folder ID
+
+        Returns:
+            Folder document data
+        """
+        try:
+            self._ensure_db()
+            folder_ref = (
+                self.db.collection("users")
+                .document(user_id)
+                .collection("folders")
+                .document(folder_id)
+            )
+
+            folder_doc = folder_ref.get()
+            if folder_doc.exists:
+                return folder_doc.to_dict()
+            return {}
+        except Exception as e:
+            logger.error(f"Error fetching folder {folder_id}: {e}")
+            return {}
