@@ -24,10 +24,13 @@ git pull
 
 gcloud config set project final-project-494621
 
-# build image and push to artifact repository
+gcloud auth configure-docker us-central1-docker.pkg.dev
 
-gcloud builds submit \
-  --tag us-central1-docker.pkg.dev/final-project-494621/rewind-jobs/rewind-timeline-job
+# build iamge 
+docker build -t us-central1-docker.pkg.dev/final-project-494621/timeline-generator/timeline-generator:latest .
+
+# push image to Artifact Registry
+docker push us-central1-docker.pkg.dev/final-project-494621/timeline-generator/timeline-generator:latest
 
 # The rest of the steps are completed in the Google Cloud Platform UI 
 
