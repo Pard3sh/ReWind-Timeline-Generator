@@ -1,4 +1,4 @@
-name: ReWind Sentiment Batch Job
+name: ReWind Timeline Generator Batch Job
 
 on:
   schedule:
