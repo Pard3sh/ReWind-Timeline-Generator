@@ -111,6 +111,9 @@ class FirestoreDB:
                 firestore_client = None
 
         self.db = firestore_client
+        logger.info(
+            f"Firestore client configured for project: {firestore_client.project}"
+        )
         if self.db:
             logger.info("FirestoreDB initialized successfully")
         else:
@@ -341,6 +344,22 @@ class FirestoreDB:
                 logger.info(
                     f"Successfully fetched {len(user_ids)} users from Firestore"
                 )
+                if len(user_ids) == 0:
+                    try:
+                        docs = list(users_ref.list_documents())
+                        logger.info(
+                            f"users_ref.list_documents() returned {len(docs)} document refs"
+                        )
+                        if docs:
+                            sample_ids = [doc.id for doc in docs[:5]]
+                            logger.info(
+                                f"Sample users from list_documents: {sample_ids}"
+                            )
+                    except Exception as list_docs_error:
+                        logger.warning(
+                            f"list_documents() also failed: {list_docs_error}",
+                            exc_info=True,
+                        )
                 return user_ids
 
             except Exception as stream_error:
