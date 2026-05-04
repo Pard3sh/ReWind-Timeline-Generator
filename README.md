@@ -99,7 +99,7 @@ This is clearly crude and not ready for scalability or real production deploymen
 ### Environment Variables
 
 - `GCNL_API_KEY`: Google Cloud Natural Language API key
-- `FIREBASE_SERVICE_ACCOUNT_KEY`: Path to Firebase service account JSON (optional, uses default credentials)
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: Path to Firebase service account JSON (optional, uses default credentials)
 
 ## Key Components
 

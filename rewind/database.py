@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 class LocationConverter:
     """Convert latitude/longitude coordinates to human-readable location strings."""
 
-    # in our Android application, location is saved as lat and long. To generate a human readable timestamp, the package handles conversion
-
     def __init__(self):
         """Initialize the geocoder with a user agent."""
         self.geocoder = Nominatim(user_agent="rewind_sentiment_analysis")
@@ -26,7 +24,6 @@ class LocationConverter:
         self, latitude: Optional[float], longitude: Optional[float]
     ) -> str:
         """Convert lat/lng to a location string like 'Boston, MA, USA'."""
-        # lat and long are nullable as users may not give permission
         if latitude is None or longitude is None:
             return ""
 
@@ -47,13 +44,17 @@ class LocationConverter:
 class FirestoreDB:
     """Firestore database operations for ReWind."""
 
-    # IMPORTANT -- this will only work properly in the cloud environment which has access to the firebase admin credentials
     def __init__(self, firestore_client=None):
         """Initialize Firestore client."""
         if firestore_client is None:
             try:
+                import os
                 import firebase_admin
-                from firebase_admin import firestore
+                from firebase_admin import credentials, firestore
+                from rewind.config import (
+                    FIREBASE_PROJECT_ID,
+                    FIREBASE_SERVICE_ACCOUNT_JSON,
+                )
 
                 logger.info("Initializing Firebase Admin SDK...")
                 logger.info(
@@ -63,40 +64,25 @@ class FirestoreDB:
                 if not firebase_admin._apps:
                     logger.info("No Firebase apps found, initializing new app...")
 
-                    # Try to get project ID and service account key from environment
-                    import os
-                    from rewind.config import (
-                        FIREBASE_PROJECT_ID,
-                        FIREBASE_SERVICE_ACCOUNT_KEY,
-                    )
-
-                    # Determine initialization options
                     options = {}
 
-                    # Set project ID if available
                     project_id = (
                         os.getenv("GOOGLE_CLOUD_PROJECT") or FIREBASE_PROJECT_ID
                     )
                     if project_id:
-                        logger.info(f"Using Firebase project ID: {project_id}")
                         options["projectId"] = project_id
+                        logger.info(f"Using Firebase project ID: {project_id}")
 
-                    # Try to use service account key if available (for local development)
-                    if FIREBASE_SERVICE_ACCOUNT_KEY and os.path.exists(
-                        FIREBASE_SERVICE_ACCOUNT_KEY
-                    ):
+                    if FIREBASE_SERVICE_ACCOUNT_JSON:
                         logger.info(
-                            f"Initializing Firebase with service account key: {FIREBASE_SERVICE_ACCOUNT_KEY}"
+                            "Initializing Firebase with FIREBASE_SERVICE_ACCOUNT_JSON"
                         )
-                        firebase_admin.initialize_app(
-                            credential=firebase_admin.credentials.Certificate(
-                                FIREBASE_SERVICE_ACCOUNT_KEY
-                            ),
-                            options=options,
-                        )
+                        service_account_info = json.loads(FIREBASE_SERVICE_ACCOUNT_JSON)
+                        cred = credentials.Certificate(service_account_info)
+                        firebase_admin.initialize_app(cred, options=options)
                     else:
                         logger.info(
-                            "No service account key specified, using default credentials (Cloud Run environment)"
+                            "No FIREBASE_SERVICE_ACCOUNT_JSON found; using default credentials"
                         )
                         firebase_admin.initialize_app(options=options)
 
@@ -108,11 +94,9 @@ class FirestoreDB:
                 firestore_client = firestore.client()
                 logger.info("Firestore client created successfully")
 
-                # Log the project ID that Firestore is configured for
                 try:
-                    project_id = firestore_client.project
                     logger.info(
-                        f"Firestore client configured for project: {project_id}"
+                        f"Firestore client configured for project: {firestore_client.project}"
                     )
                 except Exception as proj_error:
                     logger.warning(
@@ -131,13 +115,17 @@ class FirestoreDB:
                 firestore_client = None
 
         self.db = firestore_client
-        logger.info(
-            f"Firestore client configured for project: {firestore_client.project}"
-        )
+
         if self.db:
-            logger.info("FirestoreDB initialized successfully")
+            try:
+                logger.info(
+                    f"FirestoreDB initialized successfully for project: {self.db.project}"
+                )
+            except Exception:
+                logger.info("FirestoreDB initialized successfully")
         else:
             logger.error("FirestoreDB initialized with None client")
+
         self.location_converter = LocationConverter()
 
     def _ensure_db(self):
@@ -169,27 +157,26 @@ class FirestoreDB:
 
             batch.commit()
 
-    def get_folder(self, user_id: str, folder_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch a folder document."""
+    def get_folder(self, user_id: str, folder_id: str) -> Dict[str, Any]:
+        """Fetch a specific folder document."""
         try:
             self._ensure_db()
-            doc = (
+            folder_ref = (
                 self.db.collection("users")
                 .document(user_id)
                 .collection("folders")
                 .document(folder_id)
-                .get()
             )
 
-            if not doc.exists:
-                return None
-
-            data = doc.to_dict()
-            data["id"] = doc.id
-            return data
+            folder_doc = folder_ref.get()
+            if folder_doc.exists:
+                data = folder_doc.to_dict()
+                data["id"] = folder_doc.id
+                return data
+            return {}
         except Exception as e:
             logger.error(f"Error fetching folder {folder_id}: {e}")
-            return None
+            return {}
 
     def get_folder_entries(self, user_id: str, folder_id: str) -> List[Dict[str, Any]]:
         """Fetch all entries for a specific folder."""
@@ -224,11 +211,20 @@ class FirestoreDB:
             return []
 
     def get_saved_location_for_entry(self, entry: Dict[str, Any]) -> str:
-        """Build a display location string from an entry's latitude/longitude."""
-        return self.location_converter.coords_to_location_string(
-            entry.get("latitude"),
-            entry.get("longitude"),
-        )
+        """Convert entry location to a human-readable string."""
+        saved_location = entry.get("savedLocation", "")
+        if saved_location:
+            return saved_location
+
+        latitude = entry.get("latitude")
+        longitude = entry.get("longitude")
+
+        if latitude is not None and longitude is not None:
+            return self.location_converter.coords_to_location_string(
+                latitude, longitude
+            )
+
+        return ""
 
     def write_sentiment_nodes(
         self, user_id: str, folder_id: str, nodes: List[Dict[str, Any]]
@@ -315,16 +311,11 @@ class FirestoreDB:
             return False
 
     def get_all_users(self) -> List[str]:
-        """Fetch all user IDs from Firestore.
-
-        Returns:
-            List of user IDs
-        """
+        """Fetch all user IDs from Firestore."""
         try:
             self._ensure_db()
             logger.info("Attempting to fetch users from Firestore collection 'users'")
 
-            # First, let's check if we can access Firestore at all by listing collections
             try:
                 collections = self.db.collections()
                 collection_names = [col.id for col in collections]
@@ -340,12 +331,9 @@ class FirestoreDB:
                 )
                 return []
 
-            # Now try to get users
             users_ref = self.db.collection("users")
-            logger.info(f"Users collection reference created: {users_ref}")
+            logger.info("Users collection reference created")
 
-            # Try to get users by listing document references
-            # (more reliable than stream() when permissions are limited)
             try:
                 docs = list(users_ref.list_documents())
                 user_ids = [doc.id for doc in docs]
@@ -353,17 +341,17 @@ class FirestoreDB:
                 logger.info(
                     f"Successfully fetched {len(user_ids)} users from Firestore"
                 )
-                if len(user_ids) > 0:
-                    sample_ids = user_ids[:5] if len(user_ids) > 5 else user_ids
+                if user_ids:
+                    sample_ids = user_ids[:5]
                     logger.info(f"Sample users: {sample_ids}")
                     if len(user_ids) > 5:
                         logger.info(f"... and {len(user_ids) - 5} more users")
 
                 return user_ids
 
-            except Exception as stream_error:
+            except Exception as fetch_error:
                 logger.error(
-                    f"Error fetching users from Firestore: {stream_error}",
+                    f"Error fetching users from Firestore: {fetch_error}",
                     exc_info=True,
                 )
                 return []
@@ -373,14 +361,7 @@ class FirestoreDB:
             return []
 
     def get_all_folders(self, user_id: str) -> List[Dict[str, Any]]:
-        """Fetch all folders for a specific user.
-
-        Args:
-            user_id: The user ID
-
-        Returns:
-            List of folder documents with their IDs
-        """
+        """Fetch all folders for a specific user."""
         try:
             self._ensure_db()
             folders_query = (
@@ -405,22 +386,10 @@ class FirestoreDB:
     def get_unanalyzed_entries(
         self, user_id: str, folder_id: str
     ) -> List[Dict[str, Any]]:
-        """Fetch all unanalyzed entries for a specific folder.
-
-        An entry is considered unanalyzed if it doesn't have a corresponding
-        sentiment node yet (or if analyzed=false field exists).
-
-        Args:
-            user_id: The user ID
-            folder_id: The folder ID
-
-        Returns:
-            List of unanalyzed entry documents with their IDs
-        """
+        """Fetch all unanalyzed entries for a specific folder."""
         try:
             self._ensure_db()
 
-            # Fetch all entries for this folder
             entries_query = (
                 self.db.collection("users")
                 .document(user_id)
@@ -434,7 +403,6 @@ class FirestoreDB:
                 entry_data = doc.to_dict()
                 entry_data["id"] = doc.id
 
-                # Check if entry has been analyzed by looking for sentiment nodes
                 has_sentiment_node = self._entry_has_sentiment_node(
                     user_id, folder_id, doc.id
                 )
@@ -453,16 +421,7 @@ class FirestoreDB:
     def _entry_has_sentiment_node(
         self, user_id: str, folder_id: str, entry_id: str
     ) -> bool:
-        """Check if an entry already has a sentiment node.
-
-        Args:
-            user_id: The user ID
-            folder_id: The folder ID
-            entry_id: The entry ID
-
-        Returns:
-            True if sentiment node exists, False otherwise
-        """
+        """Check if an entry already has a sentiment node."""
         try:
             nodes_query = (
                 self.db.collection("users")
@@ -479,54 +438,3 @@ class FirestoreDB:
         except Exception as e:
             logger.warning(f"Error checking for sentiment node: {e}")
             return False
-
-    def get_saved_location_for_entry(self, entry: Dict[str, Any]) -> str:
-        """Convert entry location (lat/lng) to a human-readable string.
-
-        Args:
-            entry: The entry document
-
-        Returns:
-            Human-readable location string
-        """
-        saved_location = entry.get("savedLocation", "")
-        if saved_location:
-            return saved_location
-
-        # Try converting from lat/lng if available
-        latitude = entry.get("latitude")
-        longitude = entry.get("longitude")
-
-        if latitude is not None and longitude is not None:
-            return self.location_converter.coords_to_location_string(
-                latitude, longitude
-            )
-
-        return ""
-
-    def get_folder(self, user_id: str, folder_id: str) -> Dict[str, Any]:
-        """Fetch a specific folder document.
-
-        Args:
-            user_id: The user ID
-            folder_id: The folder ID
-
-        Returns:
-            Folder document data
-        """
-        try:
-            self._ensure_db()
-            folder_ref = (
-                self.db.collection("users")
-                .document(user_id)
-                .collection("folders")
-                .document(folder_id)
-            )
-
-            folder_doc = folder_ref.get()
-            if folder_doc.exists:
-                return folder_doc.to_dict()
-            return {}
-        except Exception as e:
-            logger.error(f"Error fetching folder {folder_id}: {e}")
-            return {}

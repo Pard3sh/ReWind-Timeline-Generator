@@ -42,9 +42,9 @@ A GitHub Actions workflow has been created in `.github/workflows/sentiment-batch
    - Add these secrets:
      - `GCNL_API_KEY`: Your Google Cloud NLP API key
      - `FIREBASE_PROJECT_ID`: `final-project-494621`
-     - `FIREBASE_SERVICE_ACCOUNT_KEY`: The entire JSON content from your service account key file
+     - `FIREBASE_SERVICE_ACCOUNT_JSON`: The entire JSON content from your service account key file
 
-2. **For `FIREBASE_SERVICE_ACCOUNT_KEY`**:
+2. **For `FIREBASE_SERVICE_ACCOUNT_JSON`**:
    - Open your JSON file
    - Copy the **entire JSON content** (not the path)
    - Paste it as the secret value in GitHub
