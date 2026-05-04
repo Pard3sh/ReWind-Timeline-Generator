@@ -59,7 +59,7 @@ cp .env.example .env
 
 # Edit .env with your API keys -- only necessary for local sample run
 # It is stored as a secret in the cloud environment
-# Required: GCNL_API_KEY (Google Cloud Natural Language API key) 
+# Required: GCNL_API_KEY (Google Cloud Natural Language API key)
 ```
 
 ### 3. Run Example
@@ -79,8 +79,7 @@ source venv/bin/activate
 # Run the sample
 python main.py
 
-# manual update of the database -- job.py.
-# THIS IS ONLY RUN AS A CLOUD JOB, NOT MANUALLY!
+# use for manual update -- cloud job uses are expensive and had to be descoped :(
 python job.py
 ```
 
