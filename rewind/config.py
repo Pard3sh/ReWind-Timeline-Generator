@@ -16,5 +16,8 @@ if not GCNL_API_KEY:
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 
 # Firebase service account as a single-line JSON string
-# Example secret name: FIREBASE_SERVICE_ACCOUNT_JSON
 FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+
+# OpenAI for structured activity extraction (optional enhancement)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_ACTIVITY_MODEL = os.getenv("OPENAI_ACTIVITY_MODEL", "gpt-4o-mini")

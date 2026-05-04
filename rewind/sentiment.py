@@ -2,13 +2,17 @@
 
 from datetime import datetime, timezone
 from transformers import pipeline
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+from openai import OpenAI
 import logging
+import json
+
+from rewind.config import OPENAI_API_KEY, OPENAI_ACTIVITY_MODEL
 
 logger = logging.getLogger(__name__)
 
-
 _emotion_classifier: Optional[object] = None
+_openai_client: Optional[OpenAI] = None
 
 
 def get_emotion_classifier():
@@ -21,6 +25,16 @@ def get_emotion_classifier():
             top_k=None,
         )
     return _emotion_classifier
+
+
+def get_openai_client() -> Optional[OpenAI]:
+    """Load the OpenAI client lazily if configured."""
+    global _openai_client
+    if not OPENAI_API_KEY:
+        return None
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    return _openai_client
 
 
 def parse_timestamp(ts) -> datetime:
@@ -119,7 +133,6 @@ def infer_emotion_label(text: str, score: float = 0.0, magnitude: float = 0.0) -
     except Exception as e:
         logger.warning(f"Emotion classification failed, using fallback: {e}")
 
-    # very basic heuristic
     if score >= 0.7:
         return "Happy"
     if score >= 0.3:
@@ -131,14 +144,167 @@ def infer_emotion_label(text: str, score: float = 0.0, magnitude: float = 0.0) -
     return "Upset"
 
 
+def extract_activities(text: str) -> List[str]:
+    """Extract 1-3 concise human activities from journal text using structured LLM output."""
+    text = (text or "").strip()
+    if not text:
+        return []
+
+    client = get_openai_client()
+    if client is None:
+        return []
+
+    schema = {
+        "name": "activity_extraction",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "activities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 3,
+                }
+            },
+            "required": ["activities"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
+
+    prompt = (
+        "Extract up to 3 concrete human activities from this journal entry. "
+        "Return short noun-phrase style activities only. "
+        "Good examples: 'internship meeting', 'walking back from campus', "
+        "'planning a trip', 'dinner with friends', 'studying for class'. "
+        "Do not return emotions, vague themes, locations alone,full sentences or anything at all except the requested phrase style activities."
+    )
+
+    try:
+        response = client.responses.create(
+            model=OPENAI_ACTIVITY_MODEL,
+            input=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": text},
+            ],
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": schema["name"],
+                    "schema": schema["schema"],
+                    "strict": True,
+                }
+            },
+        )
+
+        raw_text = response.output_text
+        parsed = json.loads(raw_text)
+        activities = parsed.get("activities", [])
+        cleaned = []
+        seen = set()
+
+        for activity in activities:
+            value = (activity or "").strip()
+            lowered = value.lower()
+            if value and lowered not in seen:
+                seen.add(lowered)
+                cleaned.append(value)
+
+        return cleaned[:3]
+
+    except Exception as e:
+        logger.warning(
+            f"Activity extraction failed, continuing without activities: {e}"
+        )
+        return []
+
+
+def _time_of_day_label(timestamp) -> str:
+    """Return a soft day-part label from a timestamp, or empty string if unavailable."""
+    try:
+        hour = parse_timestamp(timestamp).hour
+    except Exception:
+        return ""
+
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 17:
+        return "afternoon"
+    if 17 <= hour < 21:
+        return "evening"
+    return "night"
+
+
+def _title_case_phrase(value: str) -> str:
+    """Normalize a phrase for title display without overcomplicating capitalization."""
+    return (value or "").strip().title()
+
+
 def generate_timeline_title(
-    entry_title: str, emotion_label: str, events: list, locations: list
+    entry_title: str,
+    emotion_label: str,
+    events: list,
+    locations: list,
+    timestamp=None,
+    sentiment_magnitude: float = 0.0,
+    activities: Optional[List[str]] = None,
 ) -> str:
-    """Build a generated timeline title using events and location when available."""
-    if events and locations:
-        return f"{events[0].title()} in {locations[0]}"
-    if events:
-        return events[0].title()
-    if locations:
-        return f"{emotion_label} in {locations[0]}"
+    """
+    Build a generated timeline title using activities, event, emotion, location,
+    and time-of-day cues.
+    """
+    primary_activity = (activities[0] if activities else "").strip()
+    primary_event = (events[0] if events else "").strip()
+    primary_location = (locations[0] if locations else "").strip()
+    day_part = _time_of_day_label(timestamp)
+
+    activity_text = _title_case_phrase(primary_activity)
+    event_text = _title_case_phrase(primary_event)
+    location_text = primary_location.strip()
+    emotion_text = (emotion_label or "").strip().title()
+
+    strong_emotion = sentiment_magnitude >= 1.2
+
+    # Strong emotion + location: "Joy in Boston (evening)"
+    if strong_emotion and location_text:
+        if day_part:
+            return f"{emotion_text} in {location_text} ({day_part})"
+        return f"{emotion_text} in {location_text}"
+
+    # Activity + location (+ optional day-part)
+    if activity_text and location_text:
+        if day_part:
+            return f"{activity_text} in {location_text} ({day_part})"
+        return f"{activity_text} in {location_text}"
+
+    # Activity + day-part
+    if activity_text and day_part:
+        return f"{activity_text} ({day_part})"
+
+    # Activity only
+    if activity_text:
+        return activity_text
+
+    # Event + location (+ optional day-part)
+    if event_text and location_text:
+        if day_part:
+            return f"{event_text} in {location_text} ({day_part})"
+        return f"{event_text} in {location_text}"
+
+    # Event + day-part
+    if event_text and day_part:
+        return f"{event_text} ({day_part})"
+
+    # Event only
+    if event_text:
+        return event_text
+
+    # Location + emotion + day-part
+    if location_text and day_part:
+        return f"{emotion_text} that {day_part} in {location_text}"
+
+    # Location + emotion
+    if location_text:
+        return f"{emotion_text} in {location_text}"
+
+    # Fall back to original entry title
     return entry_title

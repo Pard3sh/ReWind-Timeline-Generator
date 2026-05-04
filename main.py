@@ -6,17 +6,14 @@ and generating sentiment timelines using the real Room/Firestore schema.
 
 import json
 
-from rewind.config import GCNL_API_KEY
+from rewind.config import GCNL_API_KEY, OPENAI_API_KEY, OPENAI_ACTIVITY_MODEL
 from rewind.api import GCNLClient
 from rewind.timeline import SentimentFolderTimeline, DetailedFolderTimeline
 
-TEST_USER_ID = "test_user_1"  # the user ids will not resemble this in practice
-TEST_FOLDER_ID = "career_reflections"  # folder id will not resemble this in practice
-# when this is run as a cloud job, we allow the firestore database to populate the user id and folder id fields so
-# the example values above are not an issue
+TEST_USER_ID = "test_user_1"
+TEST_FOLDER_ID = "career_reflections"
 TEST_FOLDER_NAME = "Career Reflections"
 
-# AI generated example entries
 entries = [
     {
         "id": "e1",
@@ -66,8 +63,22 @@ def main():
     if not GCNL_API_KEY:
         raise ValueError("GCNL_API_KEY is missing.")
 
+    print("REWIND SAMPLE ANALYSIS RUN")
+    print("=" * 60)
+    print(f"Folder: {TEST_FOLDER_NAME}")
+    print(f"Entries: {len(entries)}")
+
+    if OPENAI_API_KEY:
+        print(
+            f"Activity fallback: enabled (model={OPENAI_ACTIVITY_MODEL}, only used when GCNL finds no events)"
+        )
+    else:
+        print("Activity fallback: disabled (OPENAI_API_KEY not set)")
+
+    print()
+
     client = GCNLClient(GCNL_API_KEY)
-    # saved locations to avoid having to generate coordinate data -- the coordinate value functionality tested seperately
+
     saved_locations = {
         "e1": "Boston, MA",
         "e2": "Cambridge, MA",
@@ -75,17 +86,23 @@ def main():
         "e4": "Boston University",
     }
 
-    # save all results to represent as a sample timeline
     all_results = client.analyze_entries(
         entries=entries,
         saved_locations=saved_locations,
         folder_name=TEST_FOLDER_NAME,
     )
 
-    # below is just printing to have a textual representation of the raw analysis and the generated timeline data
     print("RAW ANALYZED RESULTS")
     print("=" * 60)
     print(json.dumps(all_results, indent=2, default=str))
+    print()
+
+    print("GENERATED TITLES")
+    print("=" * 60)
+    for result in all_results:
+        print(
+            f'{result["entry_id"]}: "{result["entry_title"]}" -> "{result["generated_title"]}"'
+        )
     print()
 
     sentiment_timeline = SentimentFolderTimeline(TEST_FOLDER_NAME)
@@ -128,6 +145,12 @@ def main():
                 default=str,
             )
         )
+        print()
+    else:
+        print("FOLDER SUMMARY PAYLOAD")
+        print("=" * 60)
+        print("Summary not available yet; minimum 3 entries required.")
+        print()
 
 
 if __name__ == "__main__":

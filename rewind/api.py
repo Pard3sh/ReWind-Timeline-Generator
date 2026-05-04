@@ -5,6 +5,7 @@ import requests
 
 from rewind.sentiment import (
     infer_emotion_label,
+    extract_activities,
     generate_timeline_title,
     sentiment_label,
 )
@@ -82,9 +83,9 @@ class GCNLClient:
             "magnitude", 0.0
         )
 
-        entities = []
-        extracted_locations = []
-        extracted_events = []
+        entities: List[Dict[str, Any]] = []
+        extracted_locations: List[str] = []
+        extracted_events: List[str] = []
 
         for entity in entity_data.get("entities", []):
             entity_name = (entity.get("name") or "").strip()
@@ -138,15 +139,24 @@ class GCNLClient:
         title = (entry.get("title", "") or "").strip()
 
         analysis = self.analyze_text(body)
+        timestamp = entry.get("timestamp")
+
+        # only call activity extraction when GCNL found no events
+        activities: List[str] = []
+        if not analysis["extracted_events"]:
+            activities = extract_activities(body)
+            activities = self._dedupe_preserve_order(activities)
 
         generated_title = generate_timeline_title(
-            title or "Untitled Entry",
-            analysis["emotion_label"],
-            analysis["extracted_events"],
-            analysis["extracted_locations"],
+            entry_title=title or "Untitled Entry",
+            emotion_label=analysis["emotion_label"],
+            events=analysis["extracted_events"],
+            locations=analysis["extracted_locations"],
+            timestamp=timestamp,
+            sentiment_magnitude=analysis["sentiment_magnitude"],
+            activities=activities,
         )
 
-        timestamp = entry.get("timestamp")
         if hasattr(timestamp, "isoformat"):
             timestamp = timestamp.isoformat()
         elif timestamp is None:
@@ -174,7 +184,7 @@ class GCNLClient:
         folder_name: str = "",
     ) -> List[Dict[str, Any]]:
         """Analyze a list of Room/Firestore journal entries."""
-        results = []
+        results: List[Dict[str, Any]] = []
         saved_locations = saved_locations or {}
 
         for entry in entries:
