@@ -2,6 +2,8 @@
 
 A Python package for analyzing journal entries using Google Cloud Natural Language API and transformer-based emotion classification to generate sentiment timelines and emotion insights for the ReWind Android mobile app.
 
+_Important!_ Need to read the other README for working with the Cloud aspects
+
 ## Features
 
 - **Sentiment analysis** using Google Cloud Natural Language API
