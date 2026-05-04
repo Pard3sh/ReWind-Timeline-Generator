@@ -190,11 +190,64 @@ AI assisted in:
 
 Design, setting up with cloud, editing placeholder code, testing, and majority of coding completed by team
 
-## Example Output
+## Batch Job Sample Logs 
+
+This case shows what it looks like when the action is scheduled but there are no new entries
+
+
+```bash
+(venv) pardesh@pardesh-ThinkPad-L15-Gen-3:~/Desktop/CS501/ReWind-Sentiment-Analysis$ python job.py 
+INFO:rewind.database:Initializing Firebase Admin SDK...
+INFO:rewind.database:Firebase apps already initialized: 0
+INFO:rewind.database:No Firebase apps found, initializing new app...
+INFO:rewind.database:Using Firebase project ID: final-project-494621
+INFO:rewind.database:Initializing Firebase with FIREBASE_SERVICE_ACCOUNT_JSON
+INFO:rewind.database:Firebase app initialized successfully
+INFO:rewind.database:Creating Firestore client...
+INFO:rewind.database:Firestore client created successfully
+INFO:rewind.database:Firestore client configured for project: final-project-494621
+INFO:rewind.database:FirestoreDB initialized successfully for project: final-project-494621
+INFO:__main__:Starting batch processing of all users and folders
+INFO:rewind.database:Attempting to fetch users from Firestore collection 'users'
+INFO:rewind.database:Available Firestore collections: ['users']
+INFO:rewind.database:Users collection reference created
+INFO:rewind.database:Successfully fetched 2 users from Firestore
+INFO:rewind.database:Sample users: ['7RWdKwPcLFO553wX2TmkgGTZ61f2', 'SEh5t9uomrN0X5UIE3Gwszkxw463']
+INFO:__main__:Found 2 users to process
+INFO:__main__:Processing user: 7RWdKwPcLFO553wX2TmkgGTZ61f2
+INFO:rewind.database:Fetched 1 folders for user 7RWdKwPcLFO553wX2TmkgGTZ61f2
+INFO:__main__:  Found 1 folders for user 7RWdKwPcLFO553wX2TmkgGTZ61f2
+INFO:__main__:  Processing folder: cheyenne test folder (NWalOKijTk4MUFc60V98)
+/home/pardesh/Desktop/CS501/ReWind-Sentiment-Analysis/venv/lib/python3.12/site-packages/google/cloud/firestore_v1/base_collection.py:317: UserWarning: Detected filter using positional arguments. Prefer using the 'filter' keyword argument instead.
+  return query.where(field_path, op_string, value)
+INFO:rewind.database:Fetched 0 unanalyzed entries for folder NWalOKijTk4MUFc60V98
+INFO:__main__:    No unanalyzed entries in folder NWalOKijTk4MUFc60V98
+INFO:__main__:Processing user: SEh5t9uomrN0X5UIE3Gwszkxw463
+INFO:rewind.database:Fetched 2 folders for user SEh5t9uomrN0X5UIE3Gwszkxw463
+INFO:__main__:  Found 2 folders for user SEh5t9uomrN0X5UIE3Gwszkxw463
+INFO:__main__:  Processing folder: new folder (GVcPP9gKfdZDePa7mU8S)
+INFO:rewind.database:Fetched 0 unanalyzed entries for folder GVcPP9gKfdZDePa7mU8S
+INFO:__main__:    No unanalyzed entries in folder GVcPP9gKfdZDePa7mU8S
+INFO:__main__:  Processing folder: Italy (WHck1DwLrAOQhCbK5TjW)
+INFO:rewind.database:Fetched 0 unanalyzed entries for folder WHck1DwLrAOQhCbK5TjW
+INFO:__main__:    No unanalyzed entries in folder WHck1DwLrAOQhCbK5TjW
+INFO:__main__:Batch job complete. Processed 0 folders and 0 entries
+{
+  "status": "success",
+  "folders_processed": 0,
+  "entries_processed": 0
+}
+
+```
+
+
+
+## Main Sample Output 
+What TImeline Generation Looks Under the Hood
 
 Sample analysis of journal entries showing sentiment progression:
 
-```
+```bash
 RAW ANALYZED RESULTS
 ============================================================
 [
