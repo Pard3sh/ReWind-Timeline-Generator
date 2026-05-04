@@ -2,7 +2,11 @@
 
 A Python package for analyzing journal entries using Google Cloud Natural Language API and transformer-based emotion classification to generate sentiment timelines and emotion insights for the ReWind Android mobile app. PLEASE REFER TO THE DOCKER_GITHUB_ACTIONS.md page (for graders). This backend service runs every 12 hours, but to facilitate faster testing, simply run the github action and see the generated timeline for any of your folders with multiple entries.
 
-_Important!_ Need to read the other README for working with the Cloud aspects
+This backend can be run in three ways:
+
+- as a local script (`python main.py`) for quick experimentation (devs-only),
+- as a local Docker container (`docker run --env-file .env …`) (devs-only), and
+- via a **GitHub Actions workflow** that builds and runs the container against the real Firestore database on a schedule or on-demand (safe for use).
 
 ## Features
 
