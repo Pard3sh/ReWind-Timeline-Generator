@@ -55,18 +55,66 @@ class FirestoreDB:
                 import firebase_admin
                 from firebase_admin import firestore
 
-                if not firebase_admin._apps:
-                    firebase_admin.initialize_app()
+                logger.info("Initializing Firebase Admin SDK...")
+                logger.info(
+                    f"Firebase apps already initialized: {len(firebase_admin._apps)}"
+                )
 
+                if not firebase_admin._apps:
+                    logger.info("No Firebase apps found, initializing new app...")
+
+                    # Try to get project ID from environment
+                    import os
+
+                    project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv(
+                        "FIREBASE_PROJECT_ID"
+                    )
+                    if project_id:
+                        logger.info(
+                            f"Initializing Firebase with project ID: {project_id}"
+                        )
+                        firebase_admin.initialize_app(options={"projectId": project_id})
+                    else:
+                        logger.info(
+                            "No project ID specified, using default credentials"
+                        )
+                        firebase_admin.initialize_app()
+
+                    logger.info("Firebase app initialized successfully")
+                else:
+                    logger.info("Using existing Firebase app")
+
+                logger.info("Creating Firestore client...")
                 firestore_client = firestore.client()
-            except ImportError:
-                logger.warning("firebase-admin not installed. DB operations will fail.")
+                logger.info("Firestore client created successfully")
+
+                # Log the project ID that Firestore is configured for
+                try:
+                    project_id = firestore_client.project
+                    logger.info(
+                        f"Firestore client configured for project: {project_id}"
+                    )
+                except Exception as proj_error:
+                    logger.warning(
+                        f"Could not determine Firestore project: {proj_error}"
+                    )
+
+            except ImportError as ie:
+                logger.warning(
+                    f"firebase-admin not installed. DB operations will fail: {ie}"
+                )
                 firestore_client = None
             except Exception as e:
-                logger.error(f"Failed to initialize Firestore client: {e}")
+                logger.error(
+                    f"Failed to initialize Firestore client: {e}", exc_info=True
+                )
                 firestore_client = None
 
         self.db = firestore_client
+        if self.db:
+            logger.info("FirestoreDB initialized successfully")
+        else:
+            logger.error("FirestoreDB initialized with None client")
         self.location_converter = LocationConverter()
 
     def _ensure_db(self):
@@ -251,12 +299,58 @@ class FirestoreDB:
         """
         try:
             self._ensure_db()
-            users = self.db.collection("users").stream()
-            user_ids = [doc.id for doc in users]
-            logger.info(f"Fetched {len(user_ids)} users")
-            return user_ids
+            logger.info("Attempting to fetch users from Firestore collection 'users'")
+
+            # First, let's check if we can access Firestore at all by listing collections
+            try:
+                collections = self.db.collections()
+                collection_names = [col.id for col in collections]
+                logger.info(f"Available Firestore collections: {collection_names}")
+
+                if "users" not in collection_names:
+                    logger.warning("No 'users' collection found in Firestore")
+                    return []
+
+            except Exception as col_error:
+                logger.error(
+                    f"Error listing Firestore collections: {col_error}", exc_info=True
+                )
+                return []
+
+            # Now try to get users
+            users_ref = self.db.collection("users")
+            logger.info(f"Users collection reference created: {users_ref}")
+
+            # Try to get collection info
+            try:
+                # This will fail if we don't have permissions, but let's see what happens
+                users = users_ref.stream()
+                user_ids = []
+
+                # Convert generator to list and log each user found
+                user_count = 0
+                for doc in users:
+                    user_ids.append(doc.id)
+                    user_count += 1
+                    if user_count <= 5:  # Log first 5 users
+                        logger.info(f"Found user: {doc.id}")
+
+                if user_count > 5:
+                    logger.info(f"... and {user_count - 5} more users")
+
+                logger.info(
+                    f"Successfully fetched {len(user_ids)} users from Firestore"
+                )
+                return user_ids
+
+            except Exception as stream_error:
+                logger.error(
+                    f"Error streaming users collection: {stream_error}", exc_info=True
+                )
+                return []
+
         except Exception as e:
-            logger.error(f"Error fetching users: {e}")
+            logger.error(f"Error fetching users from Firestore: {e}", exc_info=True)
             return []
 
     def get_all_folders(self, user_id: str) -> List[Dict[str, Any]]:
