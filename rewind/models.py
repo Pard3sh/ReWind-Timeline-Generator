@@ -1,4 +1,6 @@
-"""Data models for ReWind sentiment analysis."""
+"""Data models for ReWind sentiment analysis.
+Fields are made to exactly match Cloud database fields and the Room DB structure strictly.
+"""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -9,13 +11,15 @@ from typing import List
 class TimelineNode:
     """A single item in a folder timeline."""
 
-    entry_id: str
+    entry_id: str  # we have the timeline nodes store the entry ids specifically to allow for users being able to click on nodes and being redirected to the entry detail page
     entry_title: str = ""
     generated_title: str = ""
     folder_name: str = ""
     timestamp: str = ""
     saved_location: str = ""
-    sentiment_score: float = 0.0
+    sentiment_score: float = (
+        0.0  # 1 is max positive, -1 max negativity based of the ML model
+    )
     sentiment_magnitude: float = 0.0
     emotion_label: str = ""
     extracted_locations: List[str] = field(default_factory=list)

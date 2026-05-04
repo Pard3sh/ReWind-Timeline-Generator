@@ -10,11 +10,13 @@ from rewind.config import GCNL_API_KEY
 from rewind.api import GCNLClient
 from rewind.timeline import SentimentFolderTimeline, DetailedFolderTimeline
 
-TEST_USER_ID = "test_user_1"
-TEST_FOLDER_ID = "career_reflections"
+TEST_USER_ID = "test_user_1"  # the user ids will not resemble this in practice
+TEST_FOLDER_ID = "career_reflections"  # folder id will not resemble this in practice
+# when this is run as a cloud job, we allow the firestore database to populate the user id and folder id fields so
+# the example values above are not an issue
 TEST_FOLDER_NAME = "Career Reflections"
 
-
+# AI generated example entries
 entries = [
     {
         "id": "e1",
@@ -65,7 +67,7 @@ def main():
         raise ValueError("GCNL_API_KEY is missing.")
 
     client = GCNLClient(GCNL_API_KEY)
-
+    # saved locations to avoid having to generate coordinate data -- the coordinate value functionality tested seperately
     saved_locations = {
         "e1": "Boston, MA",
         "e2": "Cambridge, MA",
@@ -73,12 +75,14 @@ def main():
         "e4": "Boston University",
     }
 
+    # save all results to represent as a sample timeline
     all_results = client.analyze_entries(
         entries=entries,
         saved_locations=saved_locations,
         folder_name=TEST_FOLDER_NAME,
     )
 
+    # below is just printing to have a textual representation of the raw analysis and the generated timeline data
     print("RAW ANALYZED RESULTS")
     print("=" * 60)
     print(json.dumps(all_results, indent=2, default=str))

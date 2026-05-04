@@ -144,8 +144,7 @@ def process_folder_entries(
         "entry_count": len(filtered_entries),
         "sentiment_nodes": sentiment_nodes,
         "detailed_nodes": detailed_nodes,
-        "folder_summary": build_folder_summary_payload(sentiment_time    logger.info("Starting batch processing of all users and folders")
-
+        "folder_summary": build_folder_summary_payload(sentiment_timeline),
     }
 
     if db:

@@ -119,6 +119,7 @@ def infer_emotion_label(text: str, score: float = 0.0, magnitude: float = 0.0) -
     except Exception as e:
         logger.warning(f"Emotion classification failed, using fallback: {e}")
 
+    # very basic heuristic
     if score >= 0.7:
         return "Happy"
     if score >= 0.3:

@@ -22,6 +22,7 @@ class GCNLClient:
 
     @staticmethod
     def _dedupe_preserve_order(items: List[str]) -> List[str]:
+        """Ensures that the timeline order, manifesting as nodes with timestamp, maintain their order for later UI reconstruction."""
         seen = set()
         result = []
         for item in items:
@@ -132,7 +133,7 @@ class GCNLClient:
         saved_location: str = "",
         folder_name: str = "",
     ) -> Dict[str, Any]:
-        """Analyze one Room/Firestore journal entry."""
+        """Analyze one Room/Firestore journal entry. Each entry generates a sentiment node and a detail node."""
         body = (entry.get("body", "") or "").strip()
         title = (entry.get("title", "") or "").strip()
 

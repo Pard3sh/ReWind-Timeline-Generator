@@ -1,4 +1,7 @@
-"""Timeline management for ReWind sentiment analysis."""
+"""Timeline management for ReWind sentiment analysis.
+Class for Timeline, which is a collection of Node classes. Related methods and attributes to mirror DB structure.
+Used to represent timelines and the parts it is composed of, to be then serialized and uploaded to the cloud.
+"""
 
 from typing import List, Optional
 from rewind.models import TimelineNode, FolderSummary

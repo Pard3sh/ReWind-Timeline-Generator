@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 class LocationConverter:
     """Convert latitude/longitude coordinates to human-readable location strings."""
 
+    # in our Android application, location is saved as lat and long. To generate a human readable timestamp, the package handles conversion
+
     def __init__(self):
         """Initialize the geocoder with a user agent."""
         self.geocoder = Nominatim(user_agent="rewind_sentiment_analysis")
@@ -24,6 +26,7 @@ class LocationConverter:
         self, latitude: Optional[float], longitude: Optional[float]
     ) -> str:
         """Convert lat/lng to a location string like 'Boston, MA, USA'."""
+        # lat and long are nullable as users may not give permission
         if latitude is None or longitude is None:
             return ""
 
@@ -44,6 +47,7 @@ class LocationConverter:
 class FirestoreDB:
     """Firestore database operations for ReWind."""
 
+    # IMPORTANT -- this will only work properly in the cloud environment which has access to the firebase admin credentials
     def __init__(self, firestore_client=None):
         """Initialize Firestore client."""
         if firestore_client is None:

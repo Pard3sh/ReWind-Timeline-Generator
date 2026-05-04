@@ -1,4 +1,6 @@
-"""Configuration for ReWind."""
+"""Configuration for ReWind.
+access api key
+"""
 
 import os
 from dotenv import load_dotenv
