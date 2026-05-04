@@ -26,7 +26,7 @@ gcloud config set project final-project-494621
 
 gcloud auth configure-docker us-central1-docker.pkg.dev
 
-# build iamge 
+# build iamge -- will take a couple minutes but should not exceed 10 minutes
 docker build -t us-central1-docker.pkg.dev/final-project-494621/timeline-generator/timeline-generator:latest .
 
 # push image to Artifact Registry
