@@ -1,0 +1,52 @@
+name: ReWind Sentiment Batch Job
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC (adjust the time as needed)
+    - cron: "0 2 * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  batch-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t rewind-sentiment-batch:latest .
+
+      - name: Run batch job container
+        env:
+          GCNL_API_KEY: ${{ secrets.GCNL_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        run: |
+          # Create a temporary .env file with secrets
+          echo "GCNL_API_KEY=$GCNL_API_KEY" > .env
+          echo "FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID" >> .env
+          echo "FIREBASE_SERVICE_ACCOUNT_KEY=$FIREBASE_SERVICE_ACCOUNT_KEY" >> .env
+
+          # Run the container (it will exit on its own when job.py completes)
+          docker run --rm \
+            --env-file .env \
+            rewind-sentiment-batch:latest
+
+          # Clean up
+          rm .env
+
+      - name: Notify on success
+        if: success()
+        run: echo "Sentiment batch job completed successfully!"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Sentiment batch job failed!"
+          exit 1
