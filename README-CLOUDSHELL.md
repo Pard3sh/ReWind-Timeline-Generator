@@ -1,6 +1,6 @@
 # Rewind Timeline Generator Cloud Overview
 
-## Overview
+## Overview -- Deprecated
 
 We use the Cloud Shell to build and push our our timeline generator container to the Google Cloud Platform's Artifact Registery, which is a platform to host containers that can be run as jobs or services. This allows us to have a recurring job that analyzes previously unanalyzed entries and updates/creates the timeline data for each folder. This is done to make the ReWind Journal Application less heavy on the user's device. Generated timelines are uploaded to the cloud databse (firestore) which is then propagated to the user's device and displayed as UI timelines.
 
