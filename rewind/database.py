@@ -63,22 +63,42 @@ class FirestoreDB:
                 if not firebase_admin._apps:
                     logger.info("No Firebase apps found, initializing new app...")
 
-                    # Try to get project ID from environment
+                    # Try to get project ID and service account key from environment
                     import os
+                    from rewind.config import (
+                        FIREBASE_PROJECT_ID,
+                        FIREBASE_SERVICE_ACCOUNT_KEY,
+                    )
 
-                    project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv(
-                        "FIREBASE_PROJECT_ID"
+                    # Determine initialization options
+                    options = {}
+
+                    # Set project ID if available
+                    project_id = (
+                        os.getenv("GOOGLE_CLOUD_PROJECT") or FIREBASE_PROJECT_ID
                     )
                     if project_id:
+                        logger.info(f"Using Firebase project ID: {project_id}")
+                        options["projectId"] = project_id
+
+                    # Try to use service account key if available (for local development)
+                    if FIREBASE_SERVICE_ACCOUNT_KEY and os.path.exists(
+                        FIREBASE_SERVICE_ACCOUNT_KEY
+                    ):
                         logger.info(
-                            f"Initializing Firebase with project ID: {project_id}"
+                            f"Initializing Firebase with service account key: {FIREBASE_SERVICE_ACCOUNT_KEY}"
                         )
-                        firebase_admin.initialize_app(options={"projectId": project_id})
+                        firebase_admin.initialize_app(
+                            credential=firebase_admin.credentials.Certificate(
+                                FIREBASE_SERVICE_ACCOUNT_KEY
+                            ),
+                            options=options,
+                        )
                     else:
                         logger.info(
-                            "No project ID specified, using default credentials"
+                            "No service account key specified, using default credentials (Cloud Run environment)"
                         )
-                        firebase_admin.initialize_app()
+                        firebase_admin.initialize_app(options=options)
 
                     logger.info("Firebase app initialized successfully")
                 else:
@@ -324,52 +344,32 @@ class FirestoreDB:
             users_ref = self.db.collection("users")
             logger.info(f"Users collection reference created: {users_ref}")
 
-            # Try to get collection info
+            # Try to get users by listing document references
+            # (more reliable than stream() when permissions are limited)
             try:
-                # This will fail if we don't have permissions, but let's see what happens
-                users = users_ref.stream()
-                user_ids = []
-
-                # Convert generator to list and log each user found
-                user_count = 0
-                for doc in users:
-                    user_ids.append(doc.id)
-                    user_count += 1
-                    if user_count <= 5:  # Log first 5 users
-                        logger.info(f"Found user: {doc.id}")
-
-                if user_count > 5:
-                    logger.info(f"... and {user_count - 5} more users")
+                docs = list(users_ref.list_documents())
+                user_ids = [doc.id for doc in docs]
 
                 logger.info(
                     f"Successfully fetched {len(user_ids)} users from Firestore"
                 )
-                if len(user_ids) == 0:
-                    try:
-                        docs = list(users_ref.list_documents())
-                        logger.info(
-                            f"users_ref.list_documents() returned {len(docs)} document refs"
-                        )
-                        if docs:
-                            sample_ids = [doc.id for doc in docs[:5]]
-                            logger.info(
-                                f"Sample users from list_documents: {sample_ids}"
-                            )
-                    except Exception as list_docs_error:
-                        logger.warning(
-                            f"list_documents() also failed: {list_docs_error}",
-                            exc_info=True,
-                        )
+                if len(user_ids) > 0:
+                    sample_ids = user_ids[:5] if len(user_ids) > 5 else user_ids
+                    logger.info(f"Sample users: {sample_ids}")
+                    if len(user_ids) > 5:
+                        logger.info(f"... and {len(user_ids) - 5} more users")
+
                 return user_ids
 
             except Exception as stream_error:
                 logger.error(
-                    f"Error streaming users collection: {stream_error}", exc_info=True
+                    f"Error fetching users from Firestore: {stream_error}",
+                    exc_info=True,
                 )
                 return []
 
         except Exception as e:
-            logger.error(f"Error fetching users from Firestore: {e}", exc_info=True)
+            logger.error(f"Error in get_all_users: {e}", exc_info=True)
             return []
 
     def get_all_folders(self, user_id: str) -> List[Dict[str, Any]]:
